@@ -10,6 +10,7 @@ from copy import deepcopy
 
 from lib.env.quantize_env import QuantizeEnv
 from lib.env.linear_quantize_env import LinearQuantizeEnv
+from lib.env.linear_quantize_env_plus import LinearQuantizeEnvPlus
 from lib.rl.ddpg import DDPG
 from tensorboardX import SummaryWriter
 
@@ -35,7 +36,7 @@ model_names = default_model_names + customized_models_names
 print('support models: ', model_names)
 
 
-def train(num_episode, agent, env, output, linear_quantization=False, debug=False):
+def train(num_episode, agent, env, output, linear_quantization=False, debug=False, linear_quantization_plus = False):
     # best record
     best_reward = -math.inf
     best_policy = []
@@ -82,8 +83,14 @@ def train(num_episode, agent, env, output, linear_quantization=False, debug=Fals
                                                                                              info['cost'] * 1. / 8e6))
                 text_writer.write(
                     '#{}: episode_reward:{:.4f} acc: {:.4f}, cost: {:.4f}\n'.format(episode, episode_reward,
-                                                                                         info['accuracy'],
-                                                                                         info['cost'] * 1. / 8e6))
+                                                                                            info['accuracy'],
+                                                                                            info['cost'] * 1. / 8e6))
+            elif linear_quantization_plus:
+                text_writer.write(
+                    '#{}: episode_reward:{:.4f} acc: {:.4f}, cost: {:.4f}, w_size: {:.4f}\n'.format(episode, episode_reward,
+                                                                                        info['accuracy'],
+                                                                                        info['cost'] * 1. / 8e6,
+                                                                                        info['w_size'] * 1.))
             else:
                 if debug:
                     print('#{}: episode_reward:{:.4f} acc: {:.4f}, weight: {:.4f} MB'.format(episode, episode_reward,
@@ -130,7 +137,7 @@ def train(num_episode, agent, env, output, linear_quantization=False, debug=Fals
             tfwriter.add_scalar('value_loss', value_loss, episode)
             tfwriter.add_scalar('policy_loss', policy_loss, episode)
             tfwriter.add_scalar('delta', delta, episode)
-            if linear_quantization:
+            if linear_quantization or linear_quantization_plus:
                 tfwriter.add_scalar('info/coat_ratio', info['cost_ratio'], episode)
                 # record the preserve rate for each layer
                 for i, preserve_rate in enumerate(env.strategy):
@@ -144,7 +151,7 @@ def train(num_episode, agent, env, output, linear_quantization=False, debug=Fals
 
             text_writer.write('best reward: {}\n'.format(best_reward))
             text_writer.write('best policy: {}\n'.format(best_policy))
-    text_writer.close()
+    text_writer.flush()
     return best_policy, best_reward
 
 
@@ -155,11 +162,15 @@ if __name__ == "__main__":
     # env
     parser.add_argument('--dataset', default='imagenet', type=str, help='dataset to use')
     parser.add_argument('--dataset_root', default='data/imagenet', type=str, help='path to dataset')
-    parser.add_argument('--preserve_ratio', default=0.1, type=float, help='preserve ratio of the model size')
+    parser.add_argument('--preserve_ratio', default=0.1, type=float, help='preserve ratio of the model latency size')
+    parser.add_argument('--flash_preserve_ratio', default=0.5, type=float, help='preserve ratio of the model memory size')
     parser.add_argument('--min_bit', default=1, type=float, help='minimum bit to use')
     parser.add_argument('--max_bit', default=8, type=float, help='maximum bit to use')
     parser.add_argument('--float_bit', default=32, type=int, help='the bit of full precision float')
+    parser.add_argument('--reward_strategy', default=0, type=int, help='the reward strategy of RL')
     parser.add_argument('--linear_quantization', dest='linear_quantization', action='store_true')
+    #--linear_quantization_plus
+    parser.add_argument('--linear_quantization_plus', dest='linear_quantization_plus', action='store_true')
     parser.add_argument('--is_pruned', dest='is_pruned', action='store_true')
     # ddpg
     parser.add_argument('--hidden1', default=300, type=int, help='hidden num of first fully connect layer')
@@ -181,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_update', default=1, type=int, help='number of rl to update each time')
     # training
     parser.add_argument('--max_episode_length', default=1e9, type=int, help='')
-    parser.add_argument('--output', default='../../save', type=str, help='')
+    parser.add_argument('--output', default='save', type=str, help='')
     parser.add_argument('--debug', dest='debug', action='store_true')
     parser.add_argument('--init_w', default=0.003, type=float, help='')
     parser.add_argument('--train_episode', default=600, type=int, help='train iters each timestep')
@@ -204,6 +215,13 @@ if __name__ == "__main__":
     parser.add_argument('--gpu_id', default='0', type=str,
                         help='id(s) for CUDA_VISIBLE_DEVICES')
 
+    # Bit length
+    parser.add_argument('--bits', type=int, default=8, help='bit length (default: 8)')
+
+    # Observer step
+    parser.add_argument('--observer-step', '--obs', type=int, default=2000, help='bit length (default: 2000)')
+
+    
     args = parser.parse_args()
     base_folder_name = '{}_{}'.format(args.arch, args.dataset)
     if args.suffix is not None:
@@ -226,9 +244,19 @@ if __name__ == "__main__":
         num_classes = 1000
     elif args.dataset == 'imagenet100':
         num_classes = 100
+    elif args.dataset == 'cifar100':
+        num_classes = 100
     else:
         raise NotImplementedError
-    model = models.__dict__[args.arch](pretrained=True, num_classes=num_classes)
+    
+    model = models.__dict__[args.arch](pretrained=True, params = {
+        'w_bit': args.bits, 
+        'a_bit': args.bits, 
+        'quant': True, 
+        'observer': False, 
+        'learning': True, 
+        'observer_step': args.observer_step
+        }, num_classes=num_classes)
     if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
         model.features = torch.nn.DataParallel(model.features)
         model.cuda()
@@ -246,6 +274,11 @@ if __name__ == "__main__":
                                 compress_ratio=args.preserve_ratio, n_data_worker=args.n_worker,
                                 batch_size=args.data_bsize, args=args, float_bit=args.float_bit,
                                 is_model_pruned=args.is_pruned)
+    elif args.linear_quantization_plus:
+        env = LinearQuantizeEnvPlus(model, pretrained_model, args.dataset, args.dataset_root,
+                                compress_ratio=args.preserve_ratio, flash_memory_compress_ratio = args.flash_preserve_ratio, n_data_worker=args.n_worker,
+                                batch_size=args.data_bsize, args=args, float_bit=args.float_bit,
+                                is_model_pruned=args.is_pruned, reward_strategy=args.reward_strategy)
     else:
         env = QuantizeEnv(model, pretrained_model, args.dataset, args.dataset_root,
                           compress_ratio=args.preserve_ratio, n_data_worker=args.n_worker,
@@ -258,7 +291,7 @@ if __name__ == "__main__":
     print('** Actual replay buffer size: {}'.format(args.rmsize))
     agent = DDPG(nb_states, nb_actions, args)
 
-    best_policy, best_reward = train(args.train_episode, agent, env, args.output, linear_quantization=args.linear_quantization, debug=args.debug)
+    best_policy, best_reward = train(args.train_episode, agent, env, args.output, linear_quantization=args.linear_quantization, debug=args.debug, linear_quantization_plus=args.linear_quantization_plus)
     print('best_reward: ', best_reward)
     print('best_policy: ', best_policy)
-
+    text_writer.close()

@@ -146,7 +146,7 @@ def get_num_gen(gen):
 
 
 def is_leaf(model):
-    return get_num_gen(model.children()) == 0
+    return get_num_gen(model.children()) == 0 or type(model) in [LSQConv2d, LSQLinear]
 
 
 def get_layer_info(layer):

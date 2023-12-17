@@ -176,13 +176,13 @@ class LinearQuantizeEnv:
     def _final_action_wall(self):
         target = self.compress_ratio * self._org_cost()
         # memory constraint
-        
+        target_falsh_memory_strategy =  [[8, -1], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [8, 8]]
+        target_flash_memory_cost = self._cur_flash_memory_cost(target_falsh_memory_strategy)
         min_cost = 0
         for i, n_bit in enumerate(self.strategy):
             min_cost += self.cost_lookuptable[i][int(self.min_bit-1)][int(self.min_bit-1)]
 
-
-        
+        self._keep_first_last_layer()
         print('before action_wall: ', self.strategy, min_cost, self._cur_cost())
         while min_cost < self._cur_cost() and target < self._cur_cost():
             # print('current: ', self.strategy, min_cost, self._cur_cost())
@@ -235,7 +235,7 @@ class LinearQuantizeEnv:
             cur_cost += self.cost_lookuptable[i, n_bit[0]-1, n_bit[1]-1]
         return cur_cost
     
-    def _cur_flash_memory_cost(self, bits = None):
+    def _cur_flash_memory_cost(self, pk_strategy = None):
         
         cur__flash_memory_cost = 0.
         
@@ -243,9 +243,9 @@ class LinearQuantizeEnv:
         for i, ind in enumerate(self.quantizable_idx):
             m = module_list[ind]
             if type(m) == nn.Conv2d or type(m) == QConv2d or type(m) == LSQConv2d:
-                cur__flash_memory_cost += m.weight.numel() * (bits if bits else self.strategy[i][0])
+                cur__flash_memory_cost += m.weight.numel() * (pk_strategy[i][0] if pk_strategy else self.strategy[i][0])
             elif type(m) == nn.Linear or type(m) == QLinear or type(m) == LSQLinear:
-                cur__flash_memory_cost += m.weight.numel() * (bits if bits else self.strategy[i][0])
+                cur__flash_memory_cost += m.weight.numel() * (pk_strategy[i][0] if pk_strategy else self.strategy[i][0])
         
         return cur__flash_memory_cost
 

@@ -198,7 +198,8 @@ def lsqmobilenetv2(pretrained=False, params = {}, num_classes=1000, **kwargs):
     model = MobileNetV2(params, conv_layer=LSQConv2d, num_classes=1000, **kwargs)
     if pretrained:
         # Load pretrained model.
-        path = 'pretrained/imagenet/mobilenetv2-150.pth.tar'
+        # path = 'pretrained/imagenet/mobilenetv2-150.pth.tar'
+        path = 'checkpoints/lsqmobilenetv2_lr001b64e150_cifar100_w5a5/model_best.pth.tar'
         print('==> load pretrained mobilenetv2 model..')
         assert os.path.isfile(path), 'Error: no checkpoint directory found!'
         ch = torch.load(path)
