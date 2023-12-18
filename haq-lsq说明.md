@@ -98,20 +98,89 @@ typedef struct {
 } bits_4;
 
 int main() {
-	char a = 0xEF;
-	bits_4 b;
-	memcpy(&b, &a, 1);
-	printf("%d %d\n", b.h, b.l);
+	bits_4 a[2];
+    a[0].l = -1;
+    a[0].h = 2;
+    a[1].l = 3;
+    a[1].h = -4;
+
+    int val = 0;
+    char *p = (char *)&val;
+    p[0] = (char)a[0].l;
+    p[1] = (char)a[0].h;
+    p[2] = (char)a[1].l;
+    p[3] = (char)a[1].h;
+
+    printf("%x\n", val);
 	return 0;
 }
 ```
-
 output
 
 ```txt
 -2 -1
 ```
 
+对应汇编代码：
+
+```c++
+.LC0:
+        .string "%x\n"
+main:
+        push    rbp
+        mov     rbp, rsp
+        sub     rsp, 16
+        movzx   eax, BYTE PTR [rbp-10]
+        or      eax, 15
+        mov     BYTE PTR [rbp-10], al
+        movzx   eax, BYTE PTR [rbp-10]
+        and     eax, 15
+        or      eax, 32
+        mov     BYTE PTR [rbp-10], al
+        movzx   eax, BYTE PTR [rbp-9]
+        and     eax, -16
+        or      eax, 3
+        mov     BYTE PTR [rbp-9], al
+        movzx   eax, BYTE PTR [rbp-9]
+        and     eax, 15
+        or      eax, -64
+        mov     BYTE PTR [rbp-9], al
+        mov     DWORD PTR [rbp-16], 0
+        lea     rax, [rbp-16]
+        mov     QWORD PTR [rbp-8], rax
+        movzx   eax, BYTE PTR [rbp-10]
+        sal     eax, 4
+        sar     al, 4 ;sar 指令将 al 寄存器（eax 的低位字节）的值向右移动 4 位，采用符号扩展。该操作保留符号位，并将其扩展到右侧填充的位上
+        mov     edx, eax
+        mov     rax, QWORD PTR [rbp-8]
+        mov     BYTE PTR [rax], dl ;dl 是 edx 的低 8 位
+        movzx   eax, BYTE PTR [rbp-10]
+        sar     al, 4
+        mov     edx, eax
+        mov     rax, QWORD PTR [rbp-8]
+        add     rax, 1
+        mov     BYTE PTR [rax], dl
+        movzx   eax, BYTE PTR [rbp-9]
+        sal     eax, 4
+        sar     al, 4
+        mov     rdx, QWORD PTR [rbp-8]
+        add     rdx, 2
+        mov     BYTE PTR [rdx], al
+        movzx   eax, BYTE PTR [rbp-9]
+        sar     al, 4
+        mov     edx, eax
+        mov     rax, QWORD PTR [rbp-8]
+        add     rax, 3
+        mov     BYTE PTR [rax], dl
+        mov     eax, DWORD PTR [rbp-16]
+        mov     esi, eax
+        mov     edi, OFFSET FLAT:.LC0
+        mov     eax, 0
+        call    printf
+        mov     eax, 0
+        leave
+        ret
+```
 
 #### other
 ```txt

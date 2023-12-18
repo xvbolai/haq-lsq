@@ -20,7 +20,7 @@ import models as customized_models
 from lib.utils.utils import Logger, AverageMeter, accuracy
 from lib.utils.data_utils import get_dataset
 from progress.bar import Bar
-from lib.utils.quantize_utils import quantize_model, kmeans_update_model, QConv2d, QLinear, calibrate
+from lib.utils.quantize_utils import quantize_model, kmeans_update_model, QConv2d, QLinear, calibrate, LSQConv2d, LSQLinear
 
 
 # Models
@@ -94,6 +94,12 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
 # Device options
 parser.add_argument('--gpu_id', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
+# Bit length
+parser.add_argument('--bits', type=int, default=8, help='bit length (default: 8)')
+
+# Observer step
+parser.add_argument('--observer-step', '--obs', type=int, default=2000, help='bit length (default: 2000)')
+
 
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
@@ -286,7 +292,14 @@ if __name__ == '__main__':
     train_loader, val_loader, n_class = get_dataset(dataset_name=args.data_name, batch_size=args.train_batch,
                                                     n_worker=args.workers, data_root=args.data)
 
-    model = models.__dict__[args.arch](pretrained=args.pretrained)
+    model = models.__dict__[args.arch](pretrained=args.pretrained, params = {
+        'w_bit': args.bits, 
+        'a_bit': args.bits, 
+        'quant': True, 
+        'observer': False, 
+        'learning': True, 
+        'observer_step': args.observer_step
+        })
     print("=> creating model '{}'".format(args.arch), ' pretrained is ', args.pretrained)
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
     cudnn.benchmark = True
@@ -307,14 +320,14 @@ if __name__ == '__main__':
     if args.linear_quantization:
         quantizable_idx = []
         for i, m in enumerate(model.modules()):
-            if type(m) in [QConv2d, QLinear]:
+            if type(m) in [QConv2d, QLinear, LSQConv2d, LSQLinear]:
                 quantizable_idx.append(i)
         # print(model)
         print(quantizable_idx)
 
         if 'mobilenetv2' in args.arch:
             # strategy = [[8, -1], [7, 7], [5, 6], [4, 6], [5, 6], [5, 7], [5, 6], [7, 4], [4, 6], [4, 6], [7, 7], [5, 6], [4, 6], [7, 3], [5, 7], [4, 7], [7, 3], [5, 7], [4, 7], [7, 7], [4, 7], [4, 7], [6, 4], [6, 7], [4, 7], [7, 4], [6, 7], [5, 7], [7, 4], [6, 7], [5, 7], [7, 4], [6, 7], [6, 7], [6, 4], [5, 7], [6, 7], [6, 4], [5, 7], [6, 7], [7, 7], [4, 7], [7, 7], [7, 7], [4, 7], [7, 7], [7, 7], [4, 7], [7, 7], [7, 7], [4, 7], [7, 7], [8, 8]]
-            strategy = [[8, -1], [6, 4], [6, 5], [6, 5], [6, 4], [6, 5], [6, 5], [6, 4], [6, 5], [6, 5], [6, 4], [6, 5], [6, 5], [6, 4], [6, 5], [6, 5], [6, 4], [6, 5], [6, 5], [6, 4], [6, 5], [6, 6], [7, 5], [7, 7], [7, 5], [6, 5], [6, 6], [6, 5], [6, 5], [6, 6], [6, 6], [6, 5], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [6, 6], [8, 8]]
+            strategy = [[8, -1], [6, 4], [3, 5], [2, 5], [5, 3], [2, 5], [2, 5], [5, 2], [3, 5], [2, 5], [5, 3], [4, 5], [2, 5], [5, 3], [4, 5], [3, 5], [5, 3], [4, 5], [3, 5], [5, 3], [4, 5], [3, 4], [5, 3], [3, 5], [3, 4], [5, 3], [4, 5], [3, 4], [5, 3], [4, 5], [3, 5], [5, 4], [3, 5], [3, 5], [5, 3], [4, 5], [3, 5], [5, 3], [4, 5], [3, 5], [5, 4], [4, 5], [2, 5], [5, 4], [4, 4], [3, 5], [5, 4], [4, 4], [3, 5], [5, 4], [4, 4], [2, 5], [8, 8]]
         else:
             raise NotImplementedError
 

@@ -276,4 +276,38 @@ def bit_pruning_loss(model, loss, lamda = 1.0, alpha = 0.5):
         if '_a_bitlength' in name or '_w_bitlength' in name:
             loss += lamda * alpha * torch.mean(param)
     return loss
+
+
+def record_conv_outputs(model, dataset_name, size = 640, batch_size = 64, n_worker = 32, data_root = 'data/cifar10', for_inception = False ):
+    outputs = {}  
+    from lib.utils.data_utils import get_dataset
+    train_loader, _, _ = get_dataset(dataset_name, batch_size, n_worker, data_root = data_root, for_inception=for_inception)
     
+    def forward_hook(module, input, output, layer_name):
+        if layer_name not in outputs:
+            outputs[layer_name] = []
+        outputs[layer_name].append(output)
+
+    from functools import partial
+    for name, module in model.named_modules():
+        if type(model) in [LSQConv2d, QConv2d, torch.nn.Conv2d]:
+            module.register_forward_hook(partial(forward_hook, layer_name=name))
+
+    lables = []
+    
+    for i, (inputs, targets) in enumerate(train_loader):
+        input_var, = inputs.cuda()
+        _ = model(input_var)
+        lables.append(targets)
+        
+        if (i + 1) * batch_size >= size:
+            break
+    
+    lables = torch.cat(lables, dim=0)
+    
+    for layer_name, output_list in outputs.items():
+        combined_output = torch.cat(output_list, dim=0)
+        outputs[layer_name] = combined_output
+        
+    return outputs, lables
+

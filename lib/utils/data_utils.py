@@ -180,6 +180,39 @@ def get_dataset(dataset_name, batch_size, n_worker, data_root='data/imagenet', f
         
         n_class = 100
     
+    elif dataset_name == 'cifar10':
+        
+        traindir = os.path.join(data_root, 'train')
+        valdir = os.path.join(data_root, 'val')
+        assert os.path.exists(traindir), traindir + ' not found'
+        assert os.path.exists(valdir), valdir + ' not found'
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+
+        input_size = 299 if for_inception else 224
+        
+        train_transform = transforms.Compose([
+                transforms.RandomResizedCrop(input_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalize,
+            ])
+        test_transform = transforms.Compose([
+                transforms.Resize(int(input_size/0.875)),
+                transforms.CenterCrop(input_size),
+                transforms.ToTensor(),
+                normalize,
+            ])
+        
+        trainset = datasets.CIFAR10(root=traindir, train=True, transform=train_transform, download=True)
+        valset = datasets.CIFAR10(root=valdir, train=False, transform=test_transform, download=True)
+        
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True,
+                                 num_workers=n_worker, pin_memory=True)
+        val_loader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False, num_workers=n_worker, pin_memory=True)
+        
+        n_class = 10
+    
     else:
         # Add customized data here
         raise NotImplementedError
